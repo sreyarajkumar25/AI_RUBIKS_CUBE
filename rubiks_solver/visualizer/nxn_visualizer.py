@@ -78,6 +78,7 @@ class Visualizer:
         index = 0
         playing = False
         celebration_started = False
+        status_message = ""
         figure = plt.figure(figsize=(10, 8), facecolor=BACKGROUND)
         axes = figure.add_axes(
             (0.12, 0.2, 0.72, 0.76), projection="3d", computed_zorder=False
@@ -149,7 +150,8 @@ class Visualizer:
                 pad=12,
             )
             next_move = moves[index] if index < len(moves) else "complete" if moves else "not solved yet"
-            status_text.set_text(f"Next: {next_move}   |   State: {'SOLVED' if working.is_solved() else 'SCRAMBLED'}")
+            default_status = f"Next: {next_move}   |   State: {'SOLVED' if working.is_solved() else 'SCRAMBLED'}"
+            status_text.set_text(status_message or default_status)
             if moves:
                 steps = [f"[{move}]" if step == index else move for step, move in enumerate(moves)]
                 steps_text.set_text("Solution: " + " ".join(steps[:16]) + (" ..." if len(steps) > 16 else ""))
@@ -158,48 +160,86 @@ class Visualizer:
             figure.canvas.draw_idle()
 
         def step_forward(_event: object = None) -> None:
-            nonlocal index, celebration_started
-            if index < len(moves):
-                move = moves[index]
-                working.apply(move)
-                index += 1
-                draw(move)
-                if index == len(moves) and working.is_solved() and not celebration_started:
-                    celebration_started = True
+            nonlocal index, celebration_started, status_message
+            if not moves:
+                status_message = "No solution loaded. Press Solve to calculate the steps."
+                draw()
+                return
+            if index >= len(moves):
+                status_message = "Solution complete. Press Reset to replay it."
+                draw()
+                return
+            move = moves[index]
+            working.apply(move)
+            index += 1
+            solved_now = index == len(moves) and working.is_solved()
+            status_message = (
+                f"SOLVED in {index} moves."
+                if solved_now
+                else f"Applied move {index}/{len(moves)}: {move}"
+            )
+            draw(move)
+            if solved_now and show and not celebration_started:
+                celebration_started = True
 
-                    def spin(frame: int) -> None:
-                        axes.view_init(elev=24, azim=axes.azim + 1)
-                        draw()
+                def spin(frame: int) -> None:
+                    axes.view_init(elev=24, azim=axes.azim + 1)
+                    draw()
 
-                    animation = FuncAnimation(
-                        figure,
-                        spin,
-                        frames=range(360),
-                        interval=20,
-                        blit=False,
-                    )
-                    figure._rubiks_celebration = animation
+                animation = FuncAnimation(
+                    figure,
+                    spin,
+                    frames=range(360),
+                    interval=20,
+                    blit=False,
+                )
+                figure._rubiks_celebration = animation
 
         def step_backward(_event: object = None) -> None:
-            nonlocal index
+            nonlocal index, status_message
             if index > 0:
                 move = moves[index - 1]
                 inverse = move if move.endswith("2") else move[:-1] if move.endswith("'") else move + "'"
                 working.apply(inverse)
                 index -= 1
+                status_message = f"Undid step {index + 1}: {inverse}"
                 draw(inverse)
+            else:
+                status_message = "Already at the starting state."
+                draw()
 
         def toggle_play(_event: object = None) -> None:
-            nonlocal playing
+            nonlocal playing, status_message
+            if not moves:
+                status_message = "No solution loaded. Press Solve before playback."
+                draw()
+                return
+            if index >= len(moves):
+                status_message = "Solution complete. Press Reset to replay it."
+                draw()
+                return
             playing = not playing
             if playing:
+                play_button.label.set_text("Pause")
+                status_message = "Playing solution..."
                 timer.start()
             else:
+                play_button.label.set_text("Play")
+                status_message = "Playback paused."
                 timer.stop()
+            draw()
 
         def advance() -> None:
+            nonlocal playing, status_message
+            if not playing:
+                timer.stop()
+                return
             if index >= len(moves):
                 timer.stop()
+                playing = False
+                play_button.label.set_text("Play")
+                status_message = "Solution complete."
+                draw()
                 return
             step_forward()
 
@@ -248,28 +288,35 @@ class Visualizer:
         step_button.on_clicked(step_forward)
 
         def reset(_event: object = None) -> None:
-            nonlocal index, working, celebration_started
+            nonlocal index, working, celebration_started, playing, status_message
             timer.stop()
+            playing = False
+            play_button.label.set_text("Play")
             index = 0
             celebration_started = False
             working = initial_cube.copy()
+            status_message = "Reset to the starting scramble."
             draw()
 
         def change_size(label: str) -> None:
-            nonlocal index, working, initial_cube, moves, celebration_started, playing, current_size
+            nonlocal index, working, initial_cube, moves, celebration_started, playing, current_size, status_message
             timer.stop()
             playing = False
+            play_button.label.set_text("Play")
             index = 0
             celebration_started = False
             current_size = int(label[0])
             initial_cube = sizes[current_size - 2]()
             moves = []
             working = initial_cube.copy()
+            status_message = f"Loaded a solved {current_size}x{current_size} cube."
             draw()
 
         def scramble(_event: object = None) -> None:
-            nonlocal index, working, initial_cube, moves, celebration_started
+            nonlocal index, working, initial_cube, moves, celebration_started, playing, status_message
             timer.stop()
+            playing = False
+            play_button.label.set_text("Play")
             index = 0
             celebration_started = False
             scramble_lengths = {2: 7, 3: 5, 4: 3, 5: 2}
@@ -277,20 +324,37 @@ class Visualizer:
             initial_cube.apply_moves(generate_scramble(current_size, scramble_lengths[current_size]))
             working = initial_cube.copy()
             moves = []
+            status_message = "New scramble ready. Press Solve to calculate the steps."
             draw()
 
         def solve(_event: object = None) -> None:
-            nonlocal index, working, moves, celebration_started
+            nonlocal index, working, initial_cube, moves, celebration_started, playing, status_message
             timer.stop()
+            playing = False
+            play_button.label.set_text("Play")
             index = 0
             celebration_started = False
+            solve_start = working.copy()
+            status_message = "Searching for a solution..."
+            solve_button.label.set_text("Solving...")
             try:
                 solver_options = {"max_depth": 12, "max_nodes": 300_000}
-                moves = Solver("ida_star", **solver_options).solve(initial_cube.copy())
-            except SearchLimitExceeded as error:
+                moves = Solver("ida_star", **solver_options).solve(solve_start.copy())
+            except Exception as error:
                 moves = []
-                status_text.set_text(f"Could not solve within limits: {error}")
-            working = initial_cube.copy()
+                status_message = f"Solve failed: {error}"
+                solve_button.label.set_text("Solve")
+                draw()
+                return
+            initial_cube = solve_start
+            working = solve_start.copy()
+            move_label = "move" if len(moves) == 1 else "moves"
+            status_message = (
+                "Already solved."
+                if not moves
+                else f"Solution found: {len(moves)} {move_label}."
+            )
+            solve_button.label.set_text("Solve")
             draw()
 
         def show_help(_event: object = None) -> None:
