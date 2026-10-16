@@ -1,0 +1,1 @@
+"""Per-sticker rendering helpers."""

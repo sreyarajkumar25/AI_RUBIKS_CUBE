@@ -1,0 +1,27 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "rubiks-solver"
+version = "0.1.0"
+description = "A modular Rubik's cube solver for 2x2 through 5x5 cubes"
+readme = "README.md"
+requires-python = ">=3.10"
+license = { file = "LICENSE" }
+dependencies = [
+	"numpy>=1.24",
+	"matplotlib>=3.7",
+]
+
+[project.optional-dependencies]
+test = ["pytest>=7"]
+
+[project.scripts]
+rubiks-solver = "rubiks_solver.cli.commands:main"
+
+[tool.setuptools.packages.find]
+include = ["rubiks_solver*"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]

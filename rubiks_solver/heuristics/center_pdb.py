@@ -1,0 +1,1 @@
+"""Center pattern database interface for reduction subproblems."""

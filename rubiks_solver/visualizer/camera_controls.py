@@ -1,0 +1,1 @@
+"""Orbit and zoom controls for interactive rendering."""
