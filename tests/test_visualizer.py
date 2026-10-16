@@ -15,5 +15,10 @@ def test_matplotlib_renderer_builds_dynamic_sticker_grid():
 	with patch("matplotlib.get_backend", return_value="TkAgg"):
 		figure = Visualizer().render(Cube4x4(), ("Rw",), show=False)
 	assert figure is not None
-	assert len(figure.axes[0].collections) == 96
-	assert len(figure._rubiks_controls) == 6
+	assert len(figure.axes[0].collections) == 3
+	assert len(figure._rubiks_controls) == 8
+	selector = figure._rubiks_controls[6]
+	selector.set_active(3)
+	assert "5x5 cube" in figure.axes[0].get_title()
+	assert len(figure.axes[0].collections) == 3
+	assert figure.get_facecolor()[:3] == (8 / 255, 13 / 255, 18 / 255)
