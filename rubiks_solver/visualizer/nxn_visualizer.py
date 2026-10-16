@@ -15,6 +15,9 @@ from rubiks_solver.core.cube_3x3 import Cube3x3
 from rubiks_solver.core.cube_4x4 import Cube4x4
 from rubiks_solver.core.cube_5x5 import Cube5x5
 from rubiks_solver.moves.move_tables import NORMALS, _facelet_geometry, get_move_permutation
+from rubiks_solver.moves.scramble import generate_scramble
+from rubiks_solver.solvers.ida_star import SearchLimitExceeded
+from rubiks_solver.solvers.solver_factory import Solver
 from rubiks_solver.visualizer.ansi_fallback import render_ansi
 
 FACE_COLORS = {
@@ -71,6 +74,7 @@ class Visualizer:
         working = cube.copy()
         initial_cube = cube.copy()
         moves = list(solution)
+        current_size = cube.size
         index = 0
         playing = False
         celebration_started = False
@@ -144,6 +148,13 @@ class Visualizer:
                 color=TEXT_COLOR,
                 pad=12,
             )
+            next_move = moves[index] if index < len(moves) else "complete" if moves else "not solved yet"
+            status_text.set_text(f"Next: {next_move}   |   State: {'SOLVED' if working.is_solved() else 'SCRAMBLED'}")
+            if moves:
+                steps = [f"[{move}]" if step == index else move for step, move in enumerate(moves)]
+                steps_text.set_text("Solution: " + " ".join(steps[:16]) + (" ..." if len(steps) > 16 else ""))
+            else:
+                steps_text.set_text("Solution: press Solve to calculate steps")
             figure.canvas.draw_idle()
 
         def step_forward(_event: object = None) -> None:
@@ -193,17 +204,23 @@ class Visualizer:
             step_forward()
 
         timer.add_callback(advance)
-        play_axis = figure.add_axes((0.035, 0.075, 0.14, 0.065))
-        back_axis = figure.add_axes((0.185, 0.075, 0.095, 0.065))
-        step_axis = figure.add_axes((0.295, 0.075, 0.095, 0.065))
-        reset_axis = figure.add_axes((0.405, 0.075, 0.095, 0.065))
-        help_axis = figure.add_axes((0.515, 0.075, 0.095, 0.065))
-        speed_axis = figure.add_axes((0.655, 0.095, 0.19, 0.035))
+        status_text = figure.text(0.12, 0.165, "", color=TEXT_COLOR, fontsize=9)
+        steps_text = figure.text(0.12, 0.14, "", color=TEXT_COLOR, fontsize=8)
+        play_axis = figure.add_axes((0.02, 0.065, 0.105, 0.06))
+        back_axis = figure.add_axes((0.13, 0.065, 0.075, 0.06))
+        step_axis = figure.add_axes((0.21, 0.065, 0.075, 0.06))
+        reset_axis = figure.add_axes((0.29, 0.065, 0.075, 0.06))
+        scramble_axis = figure.add_axes((0.37, 0.065, 0.105, 0.06))
+        solve_axis = figure.add_axes((0.48, 0.065, 0.075, 0.06))
+        help_axis = figure.add_axes((0.56, 0.065, 0.075, 0.06))
+        speed_axis = figure.add_axes((0.69, 0.085, 0.16, 0.035))
         size_axis = figure.add_axes((0.86, 0.69, 0.11, 0.2), facecolor=BODY_COLOR)
         play_button = Button(play_axis, "Play / Pause", color=BODY_COLOR, hovercolor="#253645")
         back_button = Button(back_axis, "Back", color=BODY_COLOR, hovercolor="#253645")
         step_button = Button(step_axis, "Step", color=BODY_COLOR, hovercolor="#253645")
         reset_button = Button(reset_axis, "Reset", color=BODY_COLOR, hovercolor="#253645")
+        scramble_button = Button(scramble_axis, "Scramble", color=BODY_COLOR, hovercolor="#253645")
+        solve_button = Button(solve_axis, "Solve", color=BODY_COLOR, hovercolor="#253645")
         help_button = Button(help_axis, "Help", color=BODY_COLOR, hovercolor="#253645")
         speed_slider = Slider(
             speed_axis, "Speed", 100, 1200, valinit=interval_ms, valstep=50,
@@ -217,7 +234,10 @@ class Visualizer:
             activecolor="#30d879",
         )
         figure.text(0.86, 0.91, "CUBE SIZE", color=TEXT_COLOR, fontsize=10, weight="bold")
-        for button in (play_button, back_button, step_button, reset_button, help_button):
+        for button in (
+            play_button, back_button, step_button, reset_button,
+            scramble_button, solve_button, help_button,
+        ):
             button.label.set_color(TEXT_COLOR)
         for label in size_selector.labels:
             label.set_color(TEXT_COLOR)
@@ -236,18 +256,40 @@ class Visualizer:
             draw()
 
         def change_size(label: str) -> None:
-            nonlocal index, working, initial_cube, moves, celebration_started, playing
+            nonlocal index, working, initial_cube, moves, celebration_started, playing, current_size
             timer.stop()
             playing = False
             index = 0
             celebration_started = False
-            size = int(label[0])
-            if size == cube.size:
-                initial_cube = cube.copy()
-                moves = list(solution)
-            else:
-                initial_cube = sizes[size - 2]()
+            current_size = int(label[0])
+            initial_cube = sizes[current_size - 2]()
+            moves = []
+            working = initial_cube.copy()
+            draw()
+
+        def scramble(_event: object = None) -> None:
+            nonlocal index, working, initial_cube, moves, celebration_started
+            timer.stop()
+            index = 0
+            celebration_started = False
+            scramble_lengths = {2: 7, 3: 5, 4: 3, 5: 2}
+            initial_cube = sizes[current_size - 2]()
+            initial_cube.apply_moves(generate_scramble(current_size, scramble_lengths[current_size]))
+            working = initial_cube.copy()
+            moves = []
+            draw()
+
+        def solve(_event: object = None) -> None:
+            nonlocal index, working, moves, celebration_started
+            timer.stop()
+            index = 0
+            celebration_started = False
+            try:
+                solver_options = {"max_depth": 12, "max_nodes": 300_000}
+                moves = Solver("ida_star", **solver_options).solve(initial_cube.copy())
+            except SearchLimitExceeded as error:
                 moves = []
+                status_text.set_text(f"Could not solve within limits: {error}")
             working = initial_cube.copy()
             draw()
 
@@ -260,13 +302,14 @@ class Visualizer:
                 0.02, 0.98,
                 "CUBE VIEWER HELP\n\n"
                 "Choose 2x2, 3x3, 4x4, or 5x5 in the size selector. Changing size\n"
-                "loads a solved cube.\n\n"
+                "loads a solved cube. Scramble creates a new random start state;\n"
+                "Solve calculates a solution for the current state.\n\n"
                 "Drag on the cube to orbit. Use the mouse wheel to zoom.\n"
                 "Step applies one solution move; Back undoes one; Play / Pause\n"
-                "runs the sequence; Reset returns to the starting state.\n"
+                "runs the sequence; Reset returns to the scramble state.\n"
                 "Adjust Speed to change playback delay.\n\n"
-                "The CLI solve command accepts a scramble, cube size, algorithm,\n"
-                "and --visualize to open this playback view.",
+                "The active move is shown in brackets in the solution line.\n"
+                "The displayed color state is not changed by orbiting the camera.",
                 va="top", color=TEXT_COLOR, fontsize=11, linespacing=1.5,
             )
             help_figure._rubiks_help = True
@@ -276,6 +319,8 @@ class Visualizer:
             draw()
 
         reset_button.on_clicked(reset)
+        scramble_button.on_clicked(scramble)
+        solve_button.on_clicked(solve)
         help_button.on_clicked(show_help)
         size_selector.on_clicked(change_size)
         speed_slider.on_changed(lambda value: setattr(timer, "interval", int(value)))
@@ -284,8 +329,8 @@ class Visualizer:
         draw()
         figure._rubiks_redraw = draw
         figure._rubiks_controls = (
-            play_button, back_button, step_button, reset_button, help_button,
-            speed_slider, size_selector, timer,
+            play_button, back_button, step_button, reset_button, scramble_button,
+            solve_button, help_button, speed_slider, size_selector, timer,
         )
         if show:
             plt.show()

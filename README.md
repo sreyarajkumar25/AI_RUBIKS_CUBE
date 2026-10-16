@@ -58,6 +58,7 @@ database generation is unavailable; no precomputed database files are shipped.
 	direct search, which can solve shallow unreduced states but is not a
 	substitute for the full center/edge reduction method.
 - The visualizer supports orbit/zoom, play, pause, step, back, reset, speed,
+	scramble, solve, visible solution-step highlighting, size selection,
 	sticker highlighting, and an ANSI fallback when using a headless backend.
 
 ## Current Limitations
